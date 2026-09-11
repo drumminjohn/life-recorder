@@ -37,3 +37,40 @@ jobs:
           CODE_SIGN_IDENTITY=""
           DEVELOPMENT_TEAM=""
           build
+
+  unsigned-iphone-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build unsigned device app
+        run: >-
+          xcodebuild
+          -project ios/LifeRecorder.xcodeproj
+          -target LifeRecorder
+          -configuration Debug
+          -sdk iphoneos
+          SYMROOT="$RUNNER_TEMP/LifeRecorderProducts"
+          OBJROOT="$RUNNER_TEMP/LifeRecorderObj"
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=""
+          DEVELOPMENT_TEAM=""
+          build
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$RUNNER_TEMP/LifeRecorderProducts/Debug-iphoneos/LifeRecorder.app" \
+            "$RUNNER_TEMP/ipa/Payload/LifeRecorder.app"
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -qry "$RUNNER_TEMP/LifeRecorder-unsigned.ipa" Payload
+
+      - name: Upload unsigned device artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LifeRecorder-unsigned-iphone
+          path: ${{ runner.temp }}/LifeRecorder-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7

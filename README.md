@@ -63,15 +63,15 @@ For an end-to-end audio check, pass a local model and any WAV/M4A fixture to `te
 
 ## iOS build without a Mac
 
-The native iPhone source remains in `ios/LifeRecorder.xcodeproj`. The included [iOS unsigned build workflow](.github/workflows/ios-build.yml) uses a GitHub-hosted macOS/Xcode runner to compile the `LifeRecorder` app target in Debug for the iOS Simulator with code signing disabled. It needs no Apple credentials and produces no installable iPhone app.
+The native iPhone source remains in `ios/LifeRecorder.xcodeproj`. The included [iOS unsigned build workflow](.github/workflows/ios-build.yml) uses GitHub-hosted macOS/Xcode runners to compile the app and tests in Debug for the iOS Simulator with code signing disabled. It also packages an unsigned Debug `iphoneos` IPA as a short-lived workflow artifact. It needs no Apple credentials.
 
-The workflow is a compile check only. A simulator build cannot be installed on a physical iPhone.
+The IPA is not installable by itself: it has no provisioning profile or signature. Download the `LifeRecorder-unsigned-iphone` artifact on Windows and give it to a trusted sideloading tool that signs device apps with your Apple account. A simulator build cannot be installed on a physical iPhone.
 
 ### Signing and installing on an iPhone from Windows
 
 - TestFlight is the cleanest Apple-supported route. A paid Apple Developer account is needed to create and upload a signed archive from a later macOS GitHub Actions workflow; then install the build through TestFlight on the iPhone. The signing material belongs in GitHub encrypted secrets or another secure signing service, never in this repository.
 - A signed development or Ad Hoc IPA can be built on the GitHub macOS runner. Development/Ad Hoc distribution normally requires the iPhone to be registered and a matching provisioning profile. The resulting IPA still needs TestFlight or a compatible Windows sideloading tool; Apple’s Windows device utilities do not replace Xcode for arbitrary development IPA installation.
-- Personal-team sideloading tools such as AltStore, SideStore, or Sideloadly can sign an IPA from Windows with the user’s own Apple account. Free signing is time-limited and requires periodic refresh; use only software and account prompts you trust. Do not send an Apple ID password to Codex, and do not commit Apple credentials, certificates, profiles, device identifiers, or tokens.
+- Personal-team sideloading tools such as AltStore, SideStore, or Sideloadly can sign the unsigned IPA from Windows with the user’s own Apple account. Free signing is time-limited and requires periodic refresh; use only software and account prompts you trust. Do not send an Apple ID password to Codex, and do not commit Apple credentials, certificates, profiles, device identifiers, or tokens.
 
 The current workflow intentionally stops before signing, provisioning, App Store Connect upload, or device installation.
 
