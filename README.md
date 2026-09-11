@@ -1,49 +1,85 @@
 # Life Recorder
 
-A native iPhone recorder and private Mac receiver. The iPhone records approximately one-minute AAC chunks. A Mac receiver transcribes them locally with Whisper and maintains one continuous Markdown transcript with hourly markers. Audio is deleted after durable receipt and successful transcription. No paid transcription service or cloud backend is required.
+A native iPhone recorder and private local receiver. The iPhone records approximately one-minute AAC chunks. A Windows 11 or macOS receiver transcribes them locally with whisper.cpp and maintains one continuous Markdown transcript with hourly markers. Audio is deleted after durable receipt and successful transcription. No paid transcription service or cloud backend is required.
 
 ## Requirements
 
-- macOS with Xcode and an Apple developer account capable of installing a development build on the iPhone
-- iPhone running a supported iOS version, with Developer Mode enabled for development installation
-- Python 3.10+, `ffmpeg`, `whisper-cli` from whisper.cpp, and a downloaded GGML Whisper model
-- A reachable HTTPS path between phone and Mac (same LAN by default; use a private VPN for cellular access)
+- Windows 11 for the receiver, with Python 3.10 or newer
+- `ffmpeg.exe`, `whisper-cli.exe` from whisper.cpp, OpenSSL, and a downloaded GGML/GGUF Whisper model
+- An iPhone running a supported iOS version; Developer Mode is needed for development or sideloaded builds
+- A reachable HTTPS path between the phone and computer (same LAN by default; use a private VPN for cellular access)
 
-## Build and install
+The receiver uses only Python’s standard library. Put `ffmpeg.exe`, `whisper-cli.exe`, and `openssl.exe` on `PATH`, or pass their full paths to the Windows installer. Runtime data defaults to `%LOCALAPPDATA%\LifeRecorder`, outside this repository. Setup also applies a private Windows ACL to that directory.
 
-Open `ios/LifeRecorder.xcodeproj` in Xcode, select the connected iPhone, choose your Apple development team, and Build and Run. The app requests microphone and local-network access. Keep the source tree free of runtime credentials.
+## Configure the Windows receiver
 
-For command-line builds, use an Apple development team and the connected device identifier:
+From a PowerShell prompt in the repository:
 
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild -project ios/LifeRecorder.xcodeproj -scheme LifeRecorder \
-  -destination 'id=YOUR_DEVICE_UDID' -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM=YOUR_TEAM_ID build
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\receiver\install_windows.ps1 `
+  -Model 'C:\models\ggml-small.bin' `
+  -Url 'https://192.168.1.42:8765' `
+  -InstallTask
 ```
 
-## Configure the Mac receiver
+Use the Windows PC’s reachable LAN address in `-Url`; a hostname is also valid if the iPhone can resolve it. Omit `-Url` to use `https://<Windows-hostname>:8765`. If the tools are not on `PATH`, add switches such as:
 
-```sh
-python3 receiver/setup.py \
-  --data-dir /absolute/private/runtime \
-  --model /absolute/path/to/ggml-small.bin \
-  --install-agent
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\receiver\install_windows.ps1 `
+  -Model 'C:\models\ggml-small.bin' `
+  -Whisper 'C:\tools\whisper-cli.exe' `
+  -Ffmpeg 'C:\tools\ffmpeg.exe' `
+  -OpenSSL 'C:\tools\openssl.exe' `
+  -InstallTask
 ```
 
-Setup creates a random bearer token, a self-signed TLS certificate, and a private pairing page in the data directory. Open that page only on the intended iPhone. The token is stored in the iPhone Keychain and in the private Mac runtime; it is ignored by Git. The receiver binds an authenticated upload endpoint and does not expose transcript downloads or arbitrary Mac access.
+Setup creates a random bearer token, a self-signed TLS certificate, the SHA-256 certificate fingerprint, a private pairing page, and `launch-arguments.json` in the data directory. Open `pairing.html` only on the intended iPhone and keep it private. The generated `start-receiver.ps1` contains no token and can also be started manually:
 
-The receiver writes the combined transcript to `life.md` in the data directory. It can be placed anywhere, including `~/Documents/life.md`, by moving that file and leaving a symlink at the runtime path.
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "$env:LOCALAPPDATA\LifeRecorder\start-receiver.ps1"
+```
+
+`-InstallTask` creates or updates a least-privilege Windows Task Scheduler task named `Life Recorder Receiver`. It runs at sign-in and is configured to restart a failed receiver a few times. If a different task with that name already exists, setup refuses to modify it.
+
+If Windows Defender Firewall blocks the LAN connection, add a narrow Private-profile rule for the chosen port; do not open the port on the Public profile:
+
+```powershell
+New-NetFirewallRule -DisplayName 'Life Recorder Receiver (Private)' `
+  -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 `
+  -RemoteAddress LocalSubnet -Profile Private
+```
+
+The receiver still requires both HTTPS certificate pinning and the bearer token. It exposes only authenticated health and upload endpoints; it does not expose transcript downloads or arbitrary computer access.
+
+The combined transcript is always written to `life.md` in the data directory, with the same hourly markers and cleanup behavior as upstream. Completed audio is removed only after the receiver has durably recorded the receipt, transcribed the clip, exported `life.md`, and verified the phone’s acknowledgement. You can move `life.md` elsewhere and leave a symlink at the runtime path if desired.
+
+Run the receiver’s Windows/Python protocol tests from the repository root:
+
+```powershell
+python -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+For an end-to-end audio check, pass a local model and any WAV/M4A fixture to `tests/audio_smoke.py` with `--model`, `--sample`, and `--report`; the script discovers or accepts explicit paths for all three external tools.
+
+## iOS build without a Mac
+
+The native iPhone source remains in `ios/LifeRecorder.xcodeproj`. The included [iOS unsigned build workflow](.github/workflows/ios-build.yml) uses a GitHub-hosted macOS/Xcode runner to compile the `LifeRecorder` app target in Debug for the iOS Simulator with code signing disabled. It needs no Apple credentials and produces no installable iPhone app.
+
+The workflow is a compile check only. A simulator build cannot be installed on a physical iPhone.
+
+### Signing and installing on an iPhone from Windows
+
+- TestFlight is the cleanest Apple-supported route. A paid Apple Developer account is needed to create and upload a signed archive from a later macOS GitHub Actions workflow; then install the build through TestFlight on the iPhone. The signing material belongs in GitHub encrypted secrets or another secure signing service, never in this repository.
+- A signed development or Ad Hoc IPA can be built on the GitHub macOS runner. Development/Ad Hoc distribution normally requires the iPhone to be registered and a matching provisioning profile. The resulting IPA still needs TestFlight or a compatible Windows sideloading tool; Apple’s Windows device utilities do not replace Xcode for arbitrary development IPA installation.
+- Personal-team sideloading tools such as AltStore, SideStore, or Sideloadly can sign an IPA from Windows with the user’s own Apple account. Free signing is time-limited and requires periodic refresh; use only software and account prompts you trust. Do not send an Apple ID password to Codex, and do not commit Apple credentials, certificates, profiles, device identifiers, or tokens.
+
+The current workflow intentionally stops before signing, provisioning, App Store Connect upload, or device installation.
 
 ## Recording behavior
 
 Tap the recorder switch once. Recording continues while the screen is locked and while other apps are used. If the iPhone is rebooted or the app is force-quit, iOS requires opening Life Recorder once before microphone capture can resume. Pending audio remains on the phone until the receiver acknowledges it. Upload tasks are retried and stale connectivity tasks are cancelled so they cannot hold the queue indefinitely.
 
-Whisper runs locally on the Mac. The receiver removes common stage-direction markers and highly repetitive hallucinated noise, then writes one continuous document with an hourly capture marker. This is cleanup, not a guarantee of perfect transcription.
-
-## Using Codex to reproduce the setup
-
-The accompanying `SKILL.md` is a reusable Codex procedure. Codex can inspect and edit this source, build it with Xcode, and use Apple CoreDevice tooling to install and launch it on a connected iPhone. For visual phone interaction it uses the CUA iPhone Mirroring surface. Codex must not guess or bypass the iPhone passcode; the user handles protected prompts, trust dialogs, Developer Mode, and microphone/local-network approval. Codex should never print or commit runtime tokens, private keys, pairing pages, audio, transcripts, device identifiers, or user-specific paths.
+Whisper runs locally on the receiver. The receiver removes common stage-direction markers and highly repetitive hallucinated noise, then writes one continuous document with an hourly capture marker. This is cleanup, not a guarantee of perfect transcription.
 
 ## Security and limits
 

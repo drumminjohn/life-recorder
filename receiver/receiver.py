@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -36,11 +37,29 @@ def atomic_write(path: Path, data: bytes):
 
 
 def sync_dir(path: Path):
+    if os.name == "nt":
+        # Windows does not support opening a directory for fsync. Individual
+        # files are flushed above, and SQLite uses FULL synchronous mode.
+        return
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def resolve_executable(value: str | None, *names: str) -> str | None:
+    """Resolve an explicit executable path or the first matching PATH entry."""
+    if value:
+        candidate = Path(value).expanduser()
+        if candidate.is_file():
+            return str(candidate.resolve())
+        return shutil.which(value)
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
 
 
 def valid_uuid(value: str) -> str:
@@ -76,11 +95,20 @@ class Inbox:
         self.export()
         self.cleanup_completed()
 
+    @contextmanager
     def connect(self):
         db = sqlite3.connect(self.db, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA synchronous=FULL")
-        return db
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA synchronous=FULL")
+            yield db
+        except Exception:
+            db.rollback()
+            raise
+        else:
+            db.commit()
+        finally:
+            db.close()
 
     def receipt(self, chunk_id: str):
         with self.connect() as db:
@@ -322,8 +350,8 @@ def main():
     parser.add_argument("--cert", type=Path)
     parser.add_argument("--key", type=Path)
     parser.add_argument("--model", type=Path)
-    parser.add_argument("--whisper", default=shutil.which("whisper-cli"))
-    parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg"))
+    parser.add_argument("--whisper", help="Path or PATH name of whisper-cli")
+    parser.add_argument("--ffmpeg", help="Path or PATH name of ffmpeg")
     parser.add_argument("--init", action="store_true", help="Create the inbox, then exit")
     args = parser.parse_args()
     os.umask(0o077)
@@ -333,7 +361,9 @@ def main():
         return
     if args.host not in ("127.0.0.1", "localhost", "::1") and not (args.cert and args.key):
         parser.error("Non-loopback listeners require --cert and --key")
-    if args.model and (not args.model.is_file() or not args.whisper or not args.ffmpeg):
+    whisper = resolve_executable(args.whisper, "whisper-cli.exe", "whisper-cli")
+    ffmpeg = resolve_executable(args.ffmpeg, "ffmpeg.exe", "ffmpeg")
+    if args.model and (not args.model.is_file() or not whisper or not ffmpeg):
         parser.error("Transcription requires an existing model, whisper-cli, and ffmpeg")
     server = Receiver((args.host, args.port), Handler)
     server.inbox = inbox
@@ -344,7 +374,7 @@ def main():
         server.socket = context.wrap_socket(server.socket, server_side=True)
     stop = threading.Event()
     if args.model:
-        threading.Thread(target=worker, args=(inbox, stop, args.model, args.whisper, args.ffmpeg), daemon=True).start()
+        threading.Thread(target=worker, args=(inbox, stop, args.model, whisper, ffmpeg), daemon=True).start()
     print(f"Receiver listening on {args.host}:{args.port}; local transcripts: {inbox.root / 'life.md'}", flush=True)
     try:
         server.serve_forever()

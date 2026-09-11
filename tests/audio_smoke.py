@@ -13,21 +13,32 @@ import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "receiver"))
-from receiver import Handler, Inbox, Receiver, worker
+from receiver import Handler, Inbox, Receiver, resolve_executable, worker
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=Path, required=True)
-parser.add_argument("--sample", type=Path, default=Path("/opt/homebrew/share/whisper-cpp/jfk.wav"))
+parser.add_argument("--sample", type=Path, required=True,
+                    help="AAC or WAV fixture to transcode and upload")
+parser.add_argument("--whisper", help="Path or PATH name of whisper-cli/whisper-cli.exe")
+parser.add_argument("--ffmpeg", help="Path or PATH name of ffmpeg/ffmpeg.exe")
+parser.add_argument("--openssl", help="Path or PATH name of openssl/openssl.exe")
 parser.add_argument("--report", type=Path, required=True)
 args = parser.parse_args()
+if not args.model.is_file() or not args.sample.is_file():
+    parser.error("--model and --sample must point to existing files")
+whisper = resolve_executable(args.whisper, "whisper-cli.exe", "whisper-cli")
+ffmpeg = resolve_executable(args.ffmpeg, "ffmpeg.exe", "ffmpeg")
+openssl = resolve_executable(args.openssl, "openssl.exe", "openssl")
+if not whisper or not ffmpeg or not openssl:
+    parser.error("whisper-cli, ffmpeg, and openssl must be on PATH or passed explicitly")
 
 with tempfile.TemporaryDirectory() as scratch:
     root = Path(scratch)
     clip = root / "sample.m4a"
-    subprocess.run(["/opt/homebrew/bin/ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", str(args.sample),
+    subprocess.run([ffmpeg, "-nostdin", "-loglevel", "error", "-y", "-i", str(args.sample),
                     "-c:a", "aac", "-b:a", "32k", str(clip)], check=True)
     cert, key = root / "test.crt", root / "test.key"
-    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+    subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
                     "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(cert)],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     inbox = Inbox(root / "inbox")
@@ -40,7 +51,7 @@ with tempfile.TemporaryDirectory() as scratch:
     thread.start()
     stop = threading.Event()
     worker_thread = threading.Thread(target=worker, args=(inbox, stop, args.model.resolve(),
-        "/opt/homebrew/bin/whisper-cli", "/opt/homebrew/bin/ffmpeg"), daemon=True)
+        whisper, ffmpeg), daemon=True)
     worker_thread.start()
     chunk_id = str(uuid.uuid4())
     payload = clip.read_bytes()

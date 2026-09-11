@@ -27,6 +27,13 @@ DerivedData/
 receiver.crt
 launch-arguments.json
 start-receiver.command
+start-receiver.ps1
+start-receiver.sh
+audio/
+processing/
+*.recording.json
+*.upload
+.life-recorder-task.xml
 life.md
 days/
 .env

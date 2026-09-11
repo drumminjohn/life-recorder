@@ -8,7 +8,7 @@ final class UploadManager: NSObject, ObservableObject, URLSessionDataDelegate, U
     static let shared = UploadManager()
     static let sessionID = "com.browseruse.liferecorder.uploads"
     @Published private(set) var pendingCount = 0
-    @Published private(set) var status = "Pair with your Mac to upload"
+    @Published private(set) var status = "Pair with your receiver to upload"
     @Published private(set) var lastUploadedAt: Date?
     var backgroundCompletion: (() -> Void)?
     private var responseData: [Int: Data] = [:]
@@ -60,7 +60,7 @@ final class UploadManager: NSObject, ObservableObject, URLSessionDataDelegate, U
         assert(Thread.isMainThread)
         let pending = QueueStore.pending()
         pendingCount = pending.count
-        guard let settings = ReceiverSettings.load() else { status = "Pair with your Mac to upload"; return }
+        guard let settings = ReceiverSettings.load() else { status = "Pair with your receiver to upload"; return }
         guard !authenticationRejected else { return }
         guard !pumping else { return }
         pumping = true
@@ -171,7 +171,7 @@ final class UploadManager: NSObject, ObservableObject, URLSessionDataDelegate, U
                 authenticationRejected = true
                 status = "Pairing token rejected. Audio remains on this phone."
             case 409: status = "Receiver reported a chunk conflict. Audio remains on this phone."
-            case 507: status = "Mac storage is full. Audio remains on this phone."
+            case 507: status = "Receiver storage is full. Audio remains on this phone."
             default: status = "Waiting to upload. Audio remains on this phone."
             }
         }
