@@ -32,7 +32,6 @@ jobs:
           -configuration Debug
           -sdk iphonesimulator
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/LifeRecorderDerivedData"
           CODE_SIGNING_ALLOWED=NO
           CODE_SIGNING_REQUIRED=NO
           CODE_SIGN_IDENTITY=""
